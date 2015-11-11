@@ -9,6 +9,7 @@ import (
 	v2mq "github.com/iron-io/iron_go/mq"
 	v3config "github.com/iron-io/iron_go3/config"
 	v3mq "github.com/iron-io/iron_go3/mq"
+	"github.com/iron-io/ironauth_go"
 	"gopkg.in/inconshreveable/log15.v2"
 )
 
@@ -20,6 +21,9 @@ var (
 	to         = flag.String("to", "mq-aws-us-east-1-1.iron.io", "where they goin to")
 	projectId3 = flag.String("v3_project_id", "", "what you doin")
 	token3     = flag.String("v3_token", "", "who you is")
+
+	auth      = flag.String("auth", "auth.iron.io", "where to put update of project status")
+	authToken = flag.String("auth_token", "", "ironauth admin token")
 
 	skipMessages = flag.Bool("skip-messages", false, "just the metas")
 	queue        = flag.String("queue", "", "move just this queue")
@@ -55,6 +59,8 @@ func main() {
 	v3settings.Scheme = "https"
 	v3settings.Port = 443
 
+	setMigratedFlag(*projectId2, false)
+
 	if *queue != "" {
 		moveQueue(v2mq.ConfigNew(*queue, &v2settings), &v3settings)
 		return
@@ -80,6 +86,8 @@ func main() {
 	close(qs)
 
 	wg.Wait()
+
+	setMigratedFlag(*projectId2, true)
 	log15.Info("doneso")
 }
 
@@ -155,5 +163,26 @@ func moveQueue(q2 v2mq.Queue, settings *v3config.Settings) {
 		for _, msg := range msgs {
 			msg.Delete()
 		}
+	}
+}
+
+func setMigratedFlag(projectId string, value bool) {
+	client := authclient.New(*auth)
+
+	project, err := client.GetProject(*authToken, projectId)
+	if err != nil {
+		log15.Error("can't get project information", "err", err)
+		return
+	}
+
+	if project.Flags == nil {
+		project.Flags = make(authclient.Flags)
+	}
+	project.Flags["mq_migration"] = value
+
+	_, err = client.UpdateProject(*authToken, projectId, project)
+	if err != nil {
+		log15.Error("can't update project information")
+		return
 	}
 }
